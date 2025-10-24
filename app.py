@@ -130,8 +130,14 @@ def profile():
 def manage_groups():
     users = User.query.all()
     groups = Group.query.all()
-    permissions = Permission.query.all()
+    permissions = Permission.query.all() # Pass all permissions to the template
     return render_template('manage_groups.html', users=users, groups=groups, permissions=permissions)
+
+@app.route('/manage-permissions')
+@login_required
+def manage_permissions():
+    permissions = Permission.query.all()
+    return render_template('manage_permissions.html', permissions=permissions)
 
 @app.route('/create-group', methods=['POST'])
 @login_required
@@ -161,7 +167,7 @@ def create_permission():
         db.session.commit()
         flash('Permission created successfully.', 'success')
 
-    return redirect(url_for('manage_groups'))
+    return redirect(url_for('manage_permissions')) # Redirect to manage_permissions
 
 @app.route('/add-user-to-group', methods=['POST'])
 @login_required
@@ -203,6 +209,26 @@ def add_permission_to_group():
 
     return redirect(url_for('manage_groups'))
 
+@app.route('/remove-permission-from-group', methods=['POST'])
+@login_required
+def remove_permission_from_group():
+    permission_name = request.form.get('permission_name')
+    group_name = request.form.get('group_name')
+
+    group = Group.query.filter_by(name=group_name).first()
+    permission = Permission.query.filter_by(name=permission_name).first()
+
+    if not group or not permission:
+        flash('Group or permission not found.', 'danger')
+    elif permission not in group.permissions:
+        flash(f'Permission {permission_name} is not in group {group_name}.', 'warning')
+    else:
+        group.permissions.remove(permission)
+        db.session.commit()
+        flash(f'Permission {permission_name} removed from group {group_name}.', 'success')
+
+    return redirect(url_for('manage_groups'))
+
 @app.route('/delete-group', methods=['POST'])
 @login_required
 def delete_group():
@@ -222,6 +248,24 @@ def delete_group():
         flash(f'Group {group_name} deleted successfully.', 'success')
 
     return redirect(url_for('manage_groups'))
+
+@app.route('/delete-permission', methods=['POST'])
+@login_required
+def delete_permission():
+    permission_name = request.form.get('permission_name')
+    permission = Permission.query.filter_by(name=permission_name).first()
+
+    if not permission:
+        flash('Permission not found.', 'danger')
+    else:
+        # Remove associations with groups first
+        for group in list(permission.groups):
+            group.permissions.remove(permission)
+        db.session.delete(permission)
+        db.session.commit()
+        flash(f'Permission {permission_name} deleted successfully.', 'success')
+
+    return redirect(url_for('manage_permissions'))
 
 
 @app.route('/protected')

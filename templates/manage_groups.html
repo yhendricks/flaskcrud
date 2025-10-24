@@ -97,7 +97,14 @@
                         <p class="card-text"><strong>Permissions:</strong></p>
                         <ul>
                             {% for permission in group.permissions %}
-                                <li>{{ permission.name }}</li>
+                                <li>
+                                    {{ permission.name }}
+                                    <form method="POST" action="/remove-permission-from-group" onsubmit="return confirm('Are you sure you want to remove this permission from the group?');" class="d-inline">
+                                        <input type="hidden" name="group_name" value="{{ group.name }}">
+                                        <input type="hidden" name="permission_name" value="{{ permission.name }}">
+                                        <button type="submit" class="btn btn-warning btn-sm">Remove</button>
+                                    </form>
+                                </li>
                             {% else %}
                                 <li>No permissions for this group.</li>
                             {% endfor %}
