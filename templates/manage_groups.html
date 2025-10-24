@@ -102,6 +102,10 @@
                                 <li>No permissions for this group.</li>
                             {% endfor %}
                         </ul>
+                        <form method="POST" action="/delete-group" onsubmit="return confirm('Are you sure you want to delete this group?');">
+                            <input type="hidden" name="group_name" value="{{ group.name }}">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete Group</button>
+                        </form>
                     </div>
                 </div>
             </div>

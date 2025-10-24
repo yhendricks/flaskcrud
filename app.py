@@ -203,6 +203,26 @@ def add_permission_to_group():
 
     return redirect(url_for('manage_groups'))
 
+@app.route('/delete-group', methods=['POST'])
+@login_required
+def delete_group():
+    group_name = request.form.get('group_name')
+    group = Group.query.filter_by(name=group_name).first()
+
+    if not group:
+        flash('Group not found.', 'danger')
+    else:
+        # Remove associations with users and permissions first
+        for user in list(group.users):
+            user.groups.remove(group)
+        for permission in list(group.permissions):
+            group.permissions.remove(permission)
+        db.session.delete(group)
+        db.session.commit()
+        flash(f'Group {group_name} deleted successfully.', 'success')
+
+    return redirect(url_for('manage_groups'))
+
 
 @app.route('/protected')
 @login_required
