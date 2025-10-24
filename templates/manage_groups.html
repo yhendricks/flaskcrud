@@ -89,7 +89,16 @@
                         <p class="card-text"><strong>Users:</strong></p>
                         <ul>
                             {% for user in group.users %}
-                                <li>{{ user.username }}</li>
+                                <li>
+                                    {{ user.username }}
+                                    {% if current_user.is_superuser and current_user.id != user.id %}
+                                        <form method="POST" action="/toggle-superuser/{{ user.username }}" class="d-inline">
+                                            <button type="submit" class="btn btn-sm {% if user.is_superuser %}btn-secondary{% else %}btn-info{% endif %}">
+                                                {% if user.is_superuser %}Revoke Superuser{% else %}Make Superuser{% endif %}
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                </li>
                             {% else %}
                                 <li>No users in this group.</li>
                             {% endfor %}

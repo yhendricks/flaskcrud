@@ -29,6 +29,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True)
     password_hash = db.Column(db.String(128))
+    is_superuser = db.Column(db.Boolean, default=False) # New field for superuser
     groups = db.relationship('Group', secondary=user_group, backref='users')
 
     def set_password(self, password):
@@ -59,6 +60,10 @@ def permission_required(permission_name):
                 flash('You must be logged in to view this page.', 'danger')
                 return redirect(url_for('login'))
             
+            # Superuser bypasses all permission checks
+            if current_user.is_superuser:
+                return f(*args, **kwargs)
+
             # Check if the user has the required permission through any of their groups
             has_permission = False
             for group in current_user.groups:
@@ -267,6 +272,25 @@ def delete_permission():
 
     return redirect(url_for('manage_permissions'))
 
+@app.route('/toggle-superuser/<username>', methods=['POST'])
+@login_required
+def toggle_superuser(username):
+    # Only superusers can toggle superuser status
+    if not current_user.is_superuser:
+        flash('You do not have permission to perform this action.', 'danger')
+        return redirect(url_for('manage_groups'))
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        flash('User not found.', 'danger')
+    else:
+        user.is_superuser = not user.is_superuser
+        db.session.commit()
+        status = "granted" if user.is_superuser else "revoked"
+        flash(f'Superuser status {status} for user {username}.', 'success')
+
+    return redirect(url_for('manage_groups'))
+
 
 @app.route('/protected')
 @login_required
@@ -286,7 +310,23 @@ from flask.cli import with_appcontext
 def init_db():
     db.create_all()
 
-app.cli.add_command(init_db)
+@click.command(name='create-superuser')
+@with_appcontext
+@click.argument('username')
+@click.argument('password')
+def create_superuser_command(username, password):
+    if User.query.filter_by(username=username).first():
+        print(f"User {username} already exists.")
+        return
 
-if __name__ == '__main__':
+    new_user = User(username=username, is_superuser=True)
+    new_user.set_password(password)
+    db.session.add(new_user)
+    db.session.commit()
+    print(f"Superuser {username} created successfully.")
+
+app.cli.add_command(init_db)
+app.cli.add_command(create_superuser_command)
+
+if __name__ == 'main':
     app.run(debug=True)
