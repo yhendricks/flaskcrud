@@ -138,11 +138,7 @@ def manage_groups():
     permissions = Permission.query.all() # Pass all permissions to the template
     return render_template('manage_groups.html', users=users, groups=groups, permissions=permissions)
 
-@app.route('/manage-permissions')
-@login_required
-def manage_permissions():
-    permissions = Permission.query.all()
-    return render_template('manage_permissions.html', permissions=permissions)
+# Removed /manage-permissions route
 
 @app.route('/create-group', methods=['POST'])
 @login_required
@@ -172,7 +168,7 @@ def create_permission():
         db.session.commit()
         flash('Permission created successfully.', 'success')
 
-    return redirect(url_for('manage_permissions')) # Redirect to manage_permissions
+    return redirect(url_for('manage_groups')) # Redirect to manage_groups
 
 @app.route('/add-user-to-group', methods=['POST'])
 @login_required
@@ -270,7 +266,7 @@ def delete_permission():
         db.session.commit()
         flash(f'Permission {permission_name} deleted successfully.', 'success')
 
-    return redirect(url_for('manage_permissions'))
+    return redirect(url_for('manage_groups')) # Redirect to manage_groups
 
 @app.route('/toggle-superuser/<username>', methods=['POST'])
 @login_required
