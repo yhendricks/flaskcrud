@@ -1,199 +1,172 @@
-from flask import Flask, request, jsonify, make_response
+import os
+from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from os import environ
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = environ.get('DB_URL')
+app.config['SECRET_KEY'] = 'your_secret_key'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DB_URL', 'sqlite:///db.sqlite')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
 db = SQLAlchemy(app)
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
 
-class User(db.Model):
-    __tablename__ = 'users'
+# Models
+user_group = db.Table('user_group',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id')),
+    db.Column('group_id', db.Integer, db.ForeignKey('group.id'))
+)
 
+class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(100), unique=True)
+    password_hash = db.Column(db.String(128))
+    groups = db.relationship('Group', secondary=user_group, backref='users')
 
-    def json(self):
-        return {'id': self.id, 'username': self.username, 'email': self.email}
-    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
 
-db.create_all()
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
 
-@app.route("/test", methods=['GET'])
-def test():
-    return make_response(jsonify({'message': 'test route'}), 200)
+class Group(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True)
+    permissions = db.relationship('Permission', backref='group', lazy='dynamic')
 
-# create a user
-@app.route('/users', methods=['POST'])
-def create_user():
-    try:
-        # 1. Get and validate JSON
-        data = request.get_json()
-        if not data:
-            return make_response(jsonify({'message': 'no data provided'}), 400)
+class Permission(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('group.id'))
 
-        # 2. Extract and validate required fields
-        username = data.get('username')
-        email = data.get('email')
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
-        if not username or not email:
-            return make_response(jsonify({'message': 'username and email are required'}), 400)
+# Decorator for permission checking
+def permission_required(permission):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                return jsonify({'message': 'User not authenticated'}), 401
+            
+            for group in current_user.groups:
+                for p in group.permissions:
+                    if p.name == permission:
+                        return f(*args, **kwargs)
+            
+            return jsonify({'message': 'Permission denied'}), 403
+        return decorated_function
+    return decorator
 
-        if not isinstance(username, str) or not isinstance(email, str):
-            return make_response(jsonify({'message': 'username and email must be strings'}), 400)
+# Routes
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
 
-        username = username.strip()
-        email = email.strip()
+    if User.query.filter_by(username=username).first():
+        return jsonify({'message': 'User already exists'}), 400
 
-        if username == '' or email == '':
-            return make_response(jsonify({'message': 'username and email cannot be empty'}), 400)
+    new_user = User(username=username)
+    new_user.set_password(password)
+    db.session.add(new_user)
+    db.session.commit()
 
-        # Optional: Basic email format check
-        if '@' not in email or '.' not in email:
-            return make_response(jsonify({'message': 'invalid email format'}), 400)
+    return jsonify({'message': 'User created successfully'}), 201
 
-        # 3. Create user
-        new_user = User(username=username, email=email)
-        db.session.add(new_user)
-        db.session.commit()
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    user = User.query.filter_by(username=username).first()
 
-        return make_response(jsonify({ 'message': 'user created',
-            'user': {'id': new_user.id, 'username': username, 'email': email}
-        }), 201)
+    if not user or not user.check_password(password):
+        return jsonify({'message': 'Invalid credentials'}), 401
 
-    except IntegrityError as e:
-        db.session.rollback()
-        # Likely duplicate username/email (if unique constraints exist)
-        return make_response(jsonify({'message': 'user with this username or email already exists'}), 409)
+    login_user(user)
+    return jsonify({'message': 'Logged in successfully'}), 200
 
-    except SQLAlchemyError as e:
-        db.session.rollback()
-        return make_response(jsonify({'message': 'database error', 'error': str(e)}), 500)
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return jsonify({'message': 'Logged out successfully'}), 200
 
-    except Exception as e:
-        db.session.rollback()
-        return make_response(jsonify({'message': 'error creating user', 'error': str(e)}), 500)
-    
-# get all users    
-@app.route('/users', methods=['GET'])
-def get_users():
-    try:
-        # Optional: Pagination
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 20, type=int)
-        per_page = min(per_page, 100)  # Limit max
+@app.route('/group', methods=['POST'])
+@login_required
+def create_group():
+    data = request.get_json()
+    name = data.get('name')
 
-        # Query with pagination
-        paginated = User.query.paginate(
-            page=page, per_page=per_page, error_out=False
-        )
+    if Group.query.filter_by(name=name).first():
+        return jsonify({'message': 'Group already exists'}), 400
 
-        users = paginated.items
+    new_group = Group(name=name)
+    db.session.add(new_group)
+    db.session.commit()
 
-        # Ensure every user has .json() method
-        user_list = []
-        for user in users:
-            if not hasattr(user, 'json') or not callable(getattr(user, 'json')):
-                return make_response(jsonify({'message': 'user object missing json() method'}), 500)
-            user_list.append(user.json())
+    return jsonify({'message': 'Group created successfully'}), 201
 
-        # Build response with pagination metadata
-        response = {
-            'users': user_list,
-            'total': paginated.total,
-            'pages': paginated.pages,
-            'current_page': page,
-            'per_page': per_page
-        }
+@app.route('/group/<group_name>/user/<username>', methods=['POST'])
+@login_required
+def add_user_to_group(group_name, username):
+    group = Group.query.filter_by(name=group_name).first()
+    user = User.query.filter_by(username=username).first()
 
-        return make_response(jsonify(response), 200)
+    if not group or not user:
+        return jsonify({'message': 'Group or user not found'}), 404
 
-    except SQLAlchemyError as e:
-        return make_response(jsonify({
-            'message': 'database error',
-            'error': str(e)
-        }), 500)
-    except Exception as e:
-        return make_response(jsonify({
-            'message': 'error retrieving users',
-            'error': str(e)
-        }), 500)
+    user.groups.append(group)
+    db.session.commit()
 
-# get a user by id
-@app.route('/users/<int:id>', methods=['GET'])
-def get_user(id):
-    try:
-        user = User.query.get(id)  # Faster + cleaner
-        if not user:
-            return make_response(jsonify({'message': 'user not found'}), 404)
+    return jsonify({'message': f'User {username} added to group {group_name}'}), 200
 
-        return make_response(jsonify({'user': user.json()}), 200)
+@app.route('/group/<group_name>/permission', methods=['POST'])
+@login_required
+def add_permission_to_group(group_name):
+    data = request.get_json()
+    permission_name = data.get('permission_name')
+    group = Group.query.filter_by(name=group_name).first()
 
-    except SQLAlchemyError as e:
-        return make_response(jsonify({'message': 'database error'}), 500)
-    except Exception as e:
-        return make_response(jsonify({'message': 'error retrieving user'}), 500)
-    
-# update a user
-@app.route('/users/<int:id>', methods=['PUT'])
-def update_user(id):
-    try:
-        user = User.query.filter_by(id=id).first()
-        if not user:
-            return make_response(jsonify({'message': 'user not found'}), 404)
+    if not group:
+        return jsonify({'message': 'Group not found'}), 404
 
-        data = request.get_json()
-        if not data:
-            return make_response(jsonify({'message': 'no data provided'}), 400)
+    if Permission.query.filter_by(name=permission_name, group_id=group.id).first():
+        return jsonify({'message': 'Permission already exists for this group'}), 400
 
-        updated = False
+    new_permission = Permission(name=permission_name, group_id=group.id)
+    db.session.add(new_permission)
+    db.session.commit()
 
-        # Safely check and update fields
-        if 'username' in data and data['username'] not in (None, ''):
-            user.username = data['username']
-            updated = True
-
-        if 'email' in data and data['email'] not in (None, ''):
-            user.email = data['email']
-            updated = True
-
-        if not updated:
-            return make_response(jsonify({'message': 'no valid fields to update'}), 400)
-
-        db.session.commit()
-        return make_response(jsonify({'message': 'user updated'}), 200)
-
-    except SQLAlchemyError as e:
-        db.session.rollback()
-        return make_response(jsonify({'message': 'database error', 'error': str(e)}), 500)
-    except Exception as e:
-        return make_response(jsonify({'message': 'error updating user', 'error': str(e)}), 500)
+    return jsonify({'message': f'Permission {permission_name} added to group {group_name}'}), 200
 
 
-# delete a user
-@app.route('/users/<int:id>', methods=['DELETE'])
-def delete_user(id):  # Fixed: singular + correct name
-    try:
-        user = User.query.get(id)  # Faster: uses primary key directly
-        if not user:
-            return make_response(jsonify({'message': 'user not found'}), 404)
+@app.route('/protected')
+@login_required
+@permission_required('can_view_protected')
+def protected():
+    return jsonify({'message': 'This is a protected area'}), 200
 
-        db.session.delete(user)
-        db.session.commit()
+@app.route('/')
+def index():
+    return '<h1>User and Group Management App</h1>'
 
-        # 204 No Content is REST standard for successful DELETE
-        return make_response('', 204)
+import click
+from flask.cli import with_appcontext
 
-    except SQLAlchemyError as e:
-        db.session.rollback()
-        return make_response(jsonify({
-            'message': 'database error',
-            'error': str(e)
-        }), 500)
-    except Exception as e:
-        db.session.rollback()
-        return make_response(jsonify({
-            'message': 'error deleting user',
-            'error': str(e)
-        }), 500)
+@click.command(name='init-db')
+@with_appcontext
+def init_db():
+    db.create_all()
 
+app.cli.add_command(init_db)
+
+if __name__ == '__main__':
+    app.run(debug=True)
