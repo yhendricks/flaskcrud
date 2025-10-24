@@ -113,53 +113,65 @@ def logout():
 def profile():
     return render_template('profile.html')
 
-@app.route('/group', methods=['POST'])
+@app.route('/manage-groups')
+@login_required
+def manage_groups():
+    users = User.query.all()
+    groups = Group.query.all()
+    return render_template('manage_groups.html', users=users, groups=groups)
+
+@app.route('/create-group', methods=['POST'])
 @login_required
 def create_group():
-    data = request.get_json()
-    name = data.get('name')
+    name = request.form.get('name')
 
     if Group.query.filter_by(name=name).first():
-        return jsonify({'message': 'Group already exists'}), 400
+        flash('Group already exists.', 'danger')
+    else:
+        new_group = Group(name=name)
+        db.session.add(new_group)
+        db.session.commit()
+        flash('Group created successfully.', 'success')
 
-    new_group = Group(name=name)
-    db.session.add(new_group)
-    db.session.commit()
+    return redirect(url_for('manage_groups'))
 
-    return jsonify({'message': 'Group created successfully'}), 201
-
-@app.route('/group/<group_name>/user/<username>', methods=['POST'])
+@app.route('/add-user-to-group', methods=['POST'])
 @login_required
-def add_user_to_group(group_name, username):
-    group = Group.query.filter_by(name=group_name).first()
+def add_user_to_group():
+    username = request.form.get('username')
+    group_name = request.form.get('group_name')
+
     user = User.query.filter_by(username=username).first()
+    group = Group.query.filter_by(name=group_name).first()
 
-    if not group or not user:
-        return jsonify({'message': 'Group or user not found'}), 404
+    if not user or not group:
+        flash('User or group not found.', 'danger')
+    else:
+        user.groups.append(group)
+        db.session.commit()
+        flash(f'User {username} added to group {group_name}.', 'success')
 
-    user.groups.append(group)
-    db.session.commit()
+    return redirect(url_for('manage_groups'))
 
-    return jsonify({'message': f'User {username} added to group {group_name}'}), 200
-
-@app.route('/group/<group_name>/permission', methods=['POST'])
+@app.route('/add-permission-to-group', methods=['POST'])
 @login_required
-def add_permission_to_group(group_name):
-    data = request.get_json()
-    permission_name = data.get('permission_name')
+def add_permission_to_group():
+    permission_name = request.form.get('permission_name')
+    group_name = request.form.get('group_name')
+
     group = Group.query.filter_by(name=group_name).first()
 
     if not group:
-        return jsonify({'message': 'Group not found'}), 404
+        flash('Group not found.', 'danger')
+    elif Permission.query.filter_by(name=permission_name, group_id=group.id).first():
+        flash('Permission already exists for this group.', 'danger')
+    else:
+        new_permission = Permission(name=permission_name, group_id=group.id)
+        db.session.add(new_permission)
+        db.session.commit()
+        flash(f'Permission {permission_name} added to group {group_name}.', 'success')
 
-    if Permission.query.filter_by(name=permission_name, group_id=group.id).first():
-        return jsonify({'message': 'Permission already exists for this group'}), 400
-
-    new_permission = Permission(name=permission_name, group_id=group.id)
-    db.session.add(new_permission)
-    db.session.commit()
-
-    return jsonify({'message': f'Permission {permission_name} added to group {group_name}'}), 200
+    return redirect(url_for('manage_groups'))
 
 
 @app.route('/protected')

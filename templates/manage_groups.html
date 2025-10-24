@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h1>Manage Groups</h1>
+
+    <div class="row">
+        <div class="col-md-4">
+            <h2>Create Group</h2>
+            <form method="POST" action="/create-group">
+                <div class="form-group">
+                    <label for="name">Group Name</label>
+                    <input type="text" class="form-control" id="name" name="name" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </form>
+        </div>
+
+        <div class="col-md-4">
+            <h2>Add User to Group</h2>
+            <form method="POST" action="/add-user-to-group">
+                <div class="form-group">
+                    <label for="username">User</label>
+                    <select class="form-control" id="username" name="username" required>
+                        {% for user in users %}
+                            <option value="{{ user.username }}">{{ user.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="group_name">Group</label>
+                    <select class="form-control" id="group_name" name="group_name" required>
+                        {% for group in groups %}
+                            <option value="{{ group.name }}">{{ group.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Add User</button>
+            </form>
+        </div>
+
+        <div class="col-md-4">
+            <h2>Add Permission to Group</h2>
+            <form method="POST" action="/add-permission-to-group">
+                <div class="form-group">
+                    <label for="permission_name">Permission Name</label>
+                    <input type="text" class="form-control" id="permission_name" name="permission_name" required>
+                </div>
+                <div class="form-group">
+                    <label for="group_name_perm">Group</label>
+                    <select class="form-control" id="group_name_perm" name="group_name" required>
+                        {% for group in groups %}
+                            <option value="{{ group.name }}">{{ group.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Permission</button>
+            </form>
+        </div>
+    </div>
+
+    <hr>
+
+    <h2>Existing Groups and Permissions</h2>
+    <div class="row">
+        {% for group in groups %}
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ group.name }}</h5>
+                        <p class="card-text"><strong>Users:</strong></p>
+                        <ul>
+                            {% for user in group.users %}
+                                <li>{{ user.username }}</li>
+                            {% else %}
+                                <li>No users in this group.</li>
+                            {% endfor %}
+                        </ul>
+                        <p class="card-text"><strong>Permissions:</strong></p>
+                        <ul>
+                            {% for permission in group.permissions %}
+                                <li>{{ permission.name }}</li>
+                            {% else %}
+                                <li>No permissions for this group.</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}
