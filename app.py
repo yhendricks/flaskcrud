@@ -82,6 +82,19 @@ def permission_required(permission_name):
         return decorated_function
     return decorator
 
+# Decorator for superuser access
+def superuser_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            flash('You must be logged in to view this page.', 'danger')
+            return redirect(url_for('login'))
+        if not current_user.is_superuser:
+            flash('You do not have superuser privileges to access this page.', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 # Routes
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -131,17 +144,15 @@ def profile():
     return render_template('profile.html')
 
 @app.route('/manage-groups')
-@login_required
+@superuser_required # Only superusers can access this page
 def manage_groups():
     users = User.query.all()
     groups = Group.query.all()
     permissions = Permission.query.all() # Pass all permissions to the template
     return render_template('manage_groups.html', users=users, groups=groups, permissions=permissions)
 
-# Removed /manage-permissions route
-
 @app.route('/create-group', methods=['POST'])
-@login_required
+@superuser_required
 def create_group():
     name = request.form.get('name')
 
@@ -156,7 +167,7 @@ def create_group():
     return redirect(url_for('manage_groups'))
 
 @app.route('/create-permission', methods=['POST'])
-@login_required
+@superuser_required
 def create_permission():
     name = request.form.get('name')
 
@@ -171,7 +182,7 @@ def create_permission():
     return redirect(url_for('manage_groups')) # Redirect to manage_groups
 
 @app.route('/add-user-to-group', methods=['POST'])
-@login_required
+@superuser_required
 def add_user_to_group():
     username = request.form.get('username')
     group_name = request.form.get('group_name')
@@ -191,7 +202,7 @@ def add_user_to_group():
     return redirect(url_for('manage_groups'))
 
 @app.route('/add-permission-to-group', methods=['POST'])
-@login_required
+@superuser_required
 def add_permission_to_group():
     permission_name = request.form.get('permission_name')
     group_name = request.form.get('group_name')
@@ -211,7 +222,7 @@ def add_permission_to_group():
     return redirect(url_for('manage_groups'))
 
 @app.route('/remove-permission-from-group', methods=['POST'])
-@login_required
+@superuser_required
 def remove_permission_from_group():
     permission_name = request.form.get('permission_name')
     group_name = request.form.get('group_name')
@@ -231,7 +242,7 @@ def remove_permission_from_group():
     return redirect(url_for('manage_groups'))
 
 @app.route('/delete-group', methods=['POST'])
-@login_required
+@superuser_required
 def delete_group():
     group_name = request.form.get('group_name')
     group = Group.query.filter_by(name=group_name).first()
@@ -251,7 +262,7 @@ def delete_group():
     return redirect(url_for('manage_groups'))
 
 @app.route('/delete-permission', methods=['POST'])
-@login_required
+@superuser_required
 def delete_permission():
     permission_name = request.form.get('permission_name')
     permission = Permission.query.filter_by(name=permission_name).first()
@@ -268,17 +279,34 @@ def delete_permission():
 
     return redirect(url_for('manage_groups')) # Redirect to manage_groups
 
-@app.route('/toggle-superuser/<username>', methods=['POST'])
-@login_required
-def toggle_superuser(username):
-    # Only superusers can toggle superuser status
-    if not current_user.is_superuser:
-        flash('You do not have permission to perform this action.', 'danger')
-        return redirect(url_for('manage_groups'))
+@app.route('/delete-user', methods=['POST'])
+@superuser_required
+def delete_user():
+    username = request.form.get('username')
+    user = User.query.filter_by(username=username).first()
 
+    if not user:
+        flash('User not found.', 'danger')
+    elif user.is_superuser and current_user.id == user.id:
+        flash('You cannot delete your own superuser account.', 'danger')
+    else:
+        # Remove associations with groups first
+        for group in list(user.groups):
+            user.groups.remove(group)
+        db.session.delete(user)
+        db.session.commit()
+        flash(f'User {username} deleted successfully.', 'success')
+
+    return redirect(url_for('manage_groups'))
+
+@app.route('/toggle-superuser/<username>', methods=['POST'])
+@superuser_required
+def toggle_superuser(username):
     user = User.query.filter_by(username=username).first()
     if not user:
         flash('User not found.', 'danger')
+    elif user.is_superuser and current_user.id == user.id:
+        flash('You cannot revoke superuser status from yourself.', 'danger')
     else:
         user.is_superuser = not user.is_superuser
         db.session.commit()
