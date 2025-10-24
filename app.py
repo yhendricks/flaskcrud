@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -52,52 +52,66 @@ def permission_required(permission):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if not current_user.is_authenticated:
-                return jsonify({'message': 'User not authenticated'}), 401
+                flash('You must be logged in to view this page.', 'danger')
+                return redirect(url_for('login'))
             
             for group in current_user.groups:
                 for p in group.permissions:
                     if p.name == permission:
                         return f(*args, **kwargs)
             
-            return jsonify({'message': 'Permission denied'}), 403
+            flash('You do not have the required permissions to view this page.', 'danger')
+            return redirect(url_for('index'))
         return decorated_function
     return decorator
 
 # Routes
-@app.route('/register', methods=['POST'])
+@app.route('/register', methods=['GET', 'POST'])
 def register():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
 
-    if User.query.filter_by(username=username).first():
-        return jsonify({'message': 'User already exists'}), 400
+        if User.query.filter_by(username=username).first():
+            flash('User already exists.', 'danger')
+            return redirect(url_for('register'))
 
-    new_user = User(username=username)
-    new_user.set_password(password)
-    db.session.add(new_user)
-    db.session.commit()
+        new_user = User(username=username)
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.commit()
 
-    return jsonify({'message': 'User created successfully'}), 201
+        flash('User created successfully. Please login.', 'success')
+        return redirect(url_for('login'))
+    return render_template('register.html')
 
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-    user = User.query.filter_by(username=username).first()
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user = User.query.filter_by(username=username).first()
 
-    if not user or not user.check_password(password):
-        return jsonify({'message': 'Invalid credentials'}), 401
+        if not user or not user.check_password(password):
+            flash('Invalid credentials.', 'danger')
+            return redirect(url_for('login'))
 
-    login_user(user)
-    return jsonify({'message': 'Logged in successfully'}), 200
+        login_user(user)
+        flash('Logged in successfully.', 'success')
+        return redirect(url_for('profile'))
+    return render_template('login.html')
 
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
-    return jsonify({'message': 'Logged out successfully'}), 200
+    flash('Logged out successfully.', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/profile')
+@login_required
+def profile():
+    return render_template('profile.html')
 
 @app.route('/group', methods=['POST'])
 @login_required
@@ -152,11 +166,11 @@ def add_permission_to_group(group_name):
 @login_required
 @permission_required('can_view_protected')
 def protected():
-    return jsonify({'message': 'This is a protected area'}), 200
+    return render_template('protected.html')
 
 @app.route('/')
 def index():
-    return '<h1>User and Group Management App</h1>'
+    return render_template('index.html')
 
 import click
 from flask.cli import with_appcontext
