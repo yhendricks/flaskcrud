@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h1>Manage Groups</h1>
+    <h1>Manage Groups and Permissions</h1>
 
     <div class="row">
         <div class="col-md-4">
@@ -9,6 +9,17 @@
             <form method="POST" action="/create-group">
                 <div class="form-group">
                     <label for="name">Group Name</label>
+                    <input type="text" class="form-control" id="name" name="name" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </form>
+        </div>
+
+        <div class="col-md-4">
+            <h2>Create Permission</h2>
+            <form method="POST" action="/create-permission">
+                <div class="form-group">
+                    <label for="name">Permission Name</label>
                     <input type="text" class="form-control" id="name" name="name" required>
                 </div>
                 <button type="submit" class="btn btn-primary">Create</button>
@@ -37,13 +48,21 @@
                 <button type="submit" class="btn btn-primary">Add User</button>
             </form>
         </div>
+    </div>
 
-        <div class="col-md-4">
+    <hr>
+
+    <div class="row">
+        <div class="col-md-6">
             <h2>Add Permission to Group</h2>
             <form method="POST" action="/add-permission-to-group">
                 <div class="form-group">
-                    <label for="permission_name">Permission Name</label>
-                    <input type="text" class="form-control" id="permission_name" name="permission_name" required>
+                    <label for="permission_name">Permission</label>
+                    <select class="form-control" id="permission_name" name="permission_name" required>
+                        {% for permission in permissions %}
+                            <option value="{{ permission.name }}">{{ permission.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="form-group">
                     <label for="group_name_perm">Group</label>

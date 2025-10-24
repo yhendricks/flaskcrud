@@ -20,6 +20,11 @@ user_group = db.Table('user_group',
     db.Column('group_id', db.Integer, db.ForeignKey('group.id'))
 )
 
+group_permission = db.Table('group_permission',
+    db.Column('group_id', db.Integer, db.ForeignKey('group.id')),
+    db.Column('permission_id', db.Integer, db.ForeignKey('permission.id'))
+)
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True)
@@ -35,19 +40,18 @@ class User(UserMixin, db.Model):
 class Group(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True)
-    permissions = db.relationship('Permission', backref='group', lazy='dynamic')
+    permissions = db.relationship('Permission', secondary=group_permission, backref='groups')
 
 class Permission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True)
-    group_id = db.Column(db.Integer, db.ForeignKey('group.id'))
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
 # Decorator for permission checking
-def permission_required(permission):
+def permission_required(permission_name):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -55,13 +59,21 @@ def permission_required(permission):
                 flash('You must be logged in to view this page.', 'danger')
                 return redirect(url_for('login'))
             
+            # Check if the user has the required permission through any of their groups
+            has_permission = False
             for group in current_user.groups:
                 for p in group.permissions:
-                    if p.name == permission:
-                        return f(*args, **kwargs)
-            
-            flash('You do not have the required permissions to view this page.', 'danger')
-            return redirect(url_for('index'))
+                    if p.name == permission_name:
+                        has_permission = True
+                        break
+                if has_permission:
+                    break
+
+            if has_permission:
+                return f(*args, **kwargs)
+            else:
+                flash('You do not have the required permissions to view this page.', 'danger')
+                return redirect(url_for('index'))
         return decorated_function
     return decorator
 
@@ -118,7 +130,8 @@ def profile():
 def manage_groups():
     users = User.query.all()
     groups = Group.query.all()
-    return render_template('manage_groups.html', users=users, groups=groups)
+    permissions = Permission.query.all()
+    return render_template('manage_groups.html', users=users, groups=groups, permissions=permissions)
 
 @app.route('/create-group', methods=['POST'])
 @login_required
@@ -135,6 +148,21 @@ def create_group():
 
     return redirect(url_for('manage_groups'))
 
+@app.route('/create-permission', methods=['POST'])
+@login_required
+def create_permission():
+    name = request.form.get('name')
+
+    if Permission.query.filter_by(name=name).first():
+        flash('Permission with this name already exists.', 'danger')
+    else:
+        new_permission = Permission(name=name)
+        db.session.add(new_permission)
+        db.session.commit()
+        flash('Permission created successfully.', 'success')
+
+    return redirect(url_for('manage_groups'))
+
 @app.route('/add-user-to-group', methods=['POST'])
 @login_required
 def add_user_to_group():
@@ -146,6 +174,8 @@ def add_user_to_group():
 
     if not user or not group:
         flash('User or group not found.', 'danger')
+    elif group in user.groups:
+        flash(f'User {username} is already in group {group_name}.', 'warning')
     else:
         user.groups.append(group)
         db.session.commit()
@@ -160,14 +190,14 @@ def add_permission_to_group():
     group_name = request.form.get('group_name')
 
     group = Group.query.filter_by(name=group_name).first()
+    permission = Permission.query.filter_by(name=permission_name).first()
 
-    if not group:
-        flash('Group not found.', 'danger')
-    elif Permission.query.filter_by(name=permission_name, group_id=group.id).first():
-        flash('Permission already exists for this group.', 'danger')
+    if not group or not permission:
+        flash('Group or permission not found.', 'danger')
+    elif permission in group.permissions:
+        flash(f'Permission {permission_name} is already in group {group_name}.', 'warning')
     else:
-        new_permission = Permission(name=permission_name, group_id=group.id)
-        db.session.add(new_permission)
+        group.permissions.append(permission)
         db.session.commit()
         flash(f'Permission {permission_name} added to group {group_name}.', 'success')
 
